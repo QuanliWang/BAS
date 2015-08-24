@@ -26,7 +26,7 @@ void  update_Cov(double *Cov, double *priorCov, double *SSgam, double *marg_prob
 
 void insert_model_tree(struct Node *tree, struct Var *vars,  int n, int *model, int num_models);
  
-SEXP mcmc(SEXP Y, SEXP X, SEXP Rprobinit, SEXP Rmodeldim, SEXP incint, SEXP Ralpha,SEXP method, SEXP modelprior, SEXP Rupdate, SEXP Rbestmodel, SEXP Rbestmarg, SEXP plocal, SEXP BURNIN_Iterations, SEXP MCMC_Iterations, SEXP LAMBDA, SEXP DELTA)
+SEXP mcmc(SEXP Y, SEXP X, SEXP Rprobinit, SEXP Rmodeldim, SEXP incint, SEXP Ralpha,SEXP method, SEXP modelprior, SEXP Rupdate, SEXP Rbestmodel, SEXP Rbestmarg, SEXP plocal, SEXP BURNIN_Iterations, SEXP MCMC_Iterations, SEXP LAMBDA, SEXP DELTA, SEXP Rthin)
 {
   SEXP   Rse_m, Rcoef_m, Rmodel_m; 
 
@@ -63,7 +63,7 @@ SEXP mcmc(SEXP Y, SEXP X, SEXP Rprobinit, SEXP Rmodeldim, SEXP incint, SEXP Ralp
   double *XtX, *XtY, *XtXwork, *XtYwork, *SSgam, *Cov, *priorCov, *marg_probs;
   double one=1.0, zero=0.0, lambda,  delta; 
 
-  int inc=1, p2;
+  int inc=1, p2, thin;
   int *model, *modelold, bit, *modelwork, old_loc, new_loc;	
   char uplo[] = "U", trans[]="T";
   struct Var *vars;	/* Info about the model variables. */
@@ -79,7 +79,8 @@ SEXP mcmc(SEXP Y, SEXP X, SEXP Rprobinit, SEXP Rmodeldim, SEXP incint, SEXP Ralp
   update = INTEGER(Rupdate)[0];
   lambda=REAL(LAMBDA)[0];
   delta = REAL(DELTA)[0];
-  Rprintf("delta %f lambda %f", delta, lambda);
+  thin = INTEGER(Rthin)[0];
+  //  Rprintf("delta %f lambda %f", delta, lambda);
   eps = DBL_EPSILON;
   problocal = REAL(plocal)[0];
   //  Rprintf("Update %i and prob.switch %f\n", update, problocal);
@@ -414,8 +415,8 @@ SEXP mcmc(SEXP Y, SEXP X, SEXP Rprobinit, SEXP Rmodeldim, SEXP incint, SEXP Ralp
 	}
 
 	// Update SSgam = gamma gamma^T + SSgam 
-	F77_NAME(dsyr)("U", &n,  &one, &real_model[0], &inc,  &SSgam[0], &n);
-	m++;
+    F77_NAME(dsyr)("U", &n,  &one, &real_model[0], &inc,  &SSgam[0], &n);
+    m++;
   }
   
   for (i = 0; i < n; i++) {
@@ -432,7 +433,7 @@ SEXP mcmc(SEXP Y, SEXP X, SEXP Rprobinit, SEXP Rmodeldim, SEXP incint, SEXP Ralp
  
  
   //  Now sample W/O Replacement 
-  Rprintf("NumUnique Models Accepted %d \n", nUnique);
+  //  Rprintf("NumUnique Models Accepted %d \n", nUnique);
   INTEGER(NumUnique)[0] = nUnique;
 	
  
@@ -597,7 +598,7 @@ SEXP mcmc(SEXP Y, SEXP X, SEXP Rprobinit, SEXP Rmodeldim, SEXP incint, SEXP Ralp
 
 	setAttrib(ANS, R_NamesSymbol, ANS_names);
 	UNPROTECT(nProtected);
-	Rprintf("Return\n");
+	//	Rprintf("Return\n");
 	PutRNGstate();
 
 	return(ANS);  

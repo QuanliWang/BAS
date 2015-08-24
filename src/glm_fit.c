@@ -2,7 +2,7 @@
 #include "family.h"
 #include <R_ext/BLAS.h>
 
-typedef struct glmfamilystruc {
+/*typedef struct glmfamilystruc {
 	const char *family;
 	const char *link;
 	void (*mu_eta)(double *eta, double *mu, int n);
@@ -14,9 +14,10 @@ typedef struct glmfamilystruc {
 	double (*dispersion)(double *resid,  double *weights, int n, int rank);
 } glmstptr;
 
-
+added to family.h
+*/
 /* Version of glm.fit that can be called directly from R or C*/
-SEXP glm_bas(SEXP RX, SEXP RY,SEXP family, SEXP Roffset, SEXP Rweights, SEXP Rcontrol) {
+SEXP glm_bas(SEXP RX, SEXP RY, glmstptr *glmfamily, SEXP Roffset, SEXP Rweights, SEXP Rcontrol) {
 	int   *xdims = INTEGER(getAttrib(RX,R_DimSymbol)), n=xdims[0], p = xdims[1];
 	int inc = 1, nProtected = 0, it=0;
 
@@ -56,30 +57,14 @@ SEXP glm_bas(SEXP RX, SEXP RY,SEXP family, SEXP Roffset, SEXP Rweights, SEXP Rco
 
 	int   i, j, l, rank=1, *pivot=INTEGER(Rpivot), conv=0;
 
-	glmstptr *glmfamily;
-	char  trans[]="N";
+        char  trans[]="N";
 
+	//	glmstptr *glmfamily;
+	//      glmfamily = make_glmfamily_structure(family);
+
+	
 	tol = fmin(1e-07, REAL(getListElement(Rcontrol,"epsilon"))[0]/1000);
 
-	glmfamily = (struct glmfamilystruc *) R_alloc(1, sizeof(struct glmfamilystruc));
-	glmfamily->family = CHAR(STRING_ELT(getListElement(family, "family"),0));
-	//  Rprintf("family %s\n", glmfamily->family);
-	glmfamily->link = CHAR(STRING_ELT(getListElement(family, "link"),0));
-
-	// Rprintf("link %s\n", glmfamily->link);
-	if  (strcmp(glmfamily->family, "binomial") == 0) {
-		glmfamily->dev_resids = binomial_dev_resids;
-		glmfamily->dispersion = binomial_dispersion;
-		glmfamily->initialize = binomial_initialize;
-		if (strcmp(glmfamily->link, "logit") == 0) {
-			glmfamily->linkfun = logit_link;	
-			glmfamily->mu_eta = logit_mu_eta;
-			glmfamily->variance = logit_variance; 
-			glmfamily->linkinv =  logit_linkinv;
-		}
-		else  Rprintf("no other links implemented yet\n");
-	}
-	else  Rprintf("no other families implemented yet\n");
 
 	
 	//fit the model

@@ -5,57 +5,80 @@
   Selection in Linear Models}
 \description{Sample without replacement from a posterior distribution on models}
 \usage{bas.lm(formula, data, n.models=NULL,  prior="ZS-null", alpha=NULL,
- modelprior=uniform(),
+ modelprior=beta.binomial(1,1),
  initprobs="Uniform", method="BAS", update=NULL,
  bestmodel = NULL, bestmarg = NULL, prob.local = 0.0, prob.rw=0.5,
- Burnin.iterations = NULL, MCMC.iterations = NULL,
- lambda = NULL, delta = 0.025)
+ MCMC.iterations = NULL, lambda = NULL, delta = 0.025,thin=1)
 }
 \arguments{
   \item{formula}{linear model formula for the full model with all
     predictors, Y ~ X.  All code assumes that an intercept will be
     included in each model and that the X's will be centered.}
   \item{data}{data frame}
-  \item{n.models}{number of models to sample. If NULL, BAS will
-    enumerate unless p > 25}
+  \item{n.models}{number of models to sample either without replacement
+    (method="BAS" or "MCMC+BAS")
+    or with replacement (method="MCMC"). If NULL, BAS with
+    method="BAS" will try to enumerate all 2^p models. If enumeration is
+    not possible (memory or time) then a value should be supplied
+    which controls the number of sampled models.   For large problems
+    with method="MCMC", sampling will stop once n.models unique models
+    have been sampled if MCMC.iterations > n.models. On exit for method=
+    "MCMC"  this is the  number of unique models that have been
+    sampled. }
   \item{prior}{prior distribution for regression coefficients.  Choices include
     "AIC", "BIC", "g-prior", "ZS-null", "ZS-full", "hyper-g",
-    "hyper-g-laplace", "EB-local", and "EB-global" }
- \item{alpha}{optional hyperparameter in g-prior or hyper g-prior.  For Zellner's
-    g-prior, alpha = g, for the Liang et al hyper-g method, recommended
-    choice is alpha are between (2, 4), with alpha = 3 recommended.}
+    "hyper-g-laplace", "hyper-g-n", "EB-local", and "EB-global" }
+ \item{alpha}{optional hyperparameter in g-prior or hyper g-prior.  For
+   Zellner's g-prior, alpha = g, for the Liang et al hyper-g or
+   hyper-g-n method, recommended choice is alpha are between (2 < alpha < 4),
+   with alpha = 3 recommended.} 
   \item{modelprior}{Family of prior distribution on the models.  Choices
     include \code{\link{uniform}}
-    \code{\link{Bernoulli}} or \code{\link{beta.binomial}}}
-  \item{initprobs}{vector of length p with the initial  inclusion
-    probabilities used for sampling without replacement (the intercwept
-    should be included with probability one) or a character
-    string giving the method used to construct the sampling probabilities
-    if "Uniform" each predictor variable is equally likely to be
-    sampled (equivalent to random sampling without replacement). If
-    "eplogp", use the \code{\link{eplogprob}} function to aproximate the 
-    Bayes factor to find initial marginal inclusion probabilitites and
-    sample without replacement using these
-    inclusion probabilaties. For variables that should always be
-    included set the corresponding initprobs to 1. To run a
+    \code{\link{Bernoulli}} or \code{\link{beta.binomial}} with the
+    default being a \code{beta.binomial(1,1)}.  }
+  \item{initprobs}{Vector of length
+    p or a character string for approach used to create the vector.
+    This is used to order variables for sampling all methods for
+    potentially more  efficient storage while sampling and provides the
+    initial  inclusion  probabilities used for sampling without replacement with
+    method="BAS".  Options for the charactier string giving the method
+    are:  "Uniform" or "uniform" where each predictor variable is
+    equally likely to be sampled (equivalent to random sampling without
+    replacement);  "eplogp" uses the \code{\link{eplogprob}} function
+    to aproximate the  Bayes factor from p-values from the full model to
+    find initial marginal inclusion probabilitites;
+    "marg-eplogp" uses\code{\link{eplogprob.marg}} function  to
+    aproximate the  Bayes factor from p-values from the full model each
+    simple linear regression.  To run a
     Markov Chain to provide initial estimates of marginal
-    inclusion probabilities, use method="MCMC+BAS" below.
-  } 
+    inclusion probabilities for "BAS", use method="MCMC+BAS" below.  While the
+    initprobs are not used in sampling for method="MCMC", this
+    determines the order of the variables in the lookup table and
+    affects memory allocation in large problems where enumeration is not
+    feasible.  For variables that should always be included set the
+    corresponding initprobs to 1, i.e. the intercept should be included with
+    probability one. 
+   } 
   \item{method}{A character variable indicating which sampling method to
     use: method="BAS" uses Bayesian Adaptive Sampling (without
     replacement) using the sampling probabilities given in initprobs;
+    method="MCMC" samples with replacement via a MCMC algorithm based
+    that combines the birth/death random walk in Hoeting et al (1997) of
+    MC3 with a random swap move to interchange a variable in the model
+    with one currently excluded as in Clyde, Ghosh and Littman (2010);
     method="MCMC+BAS" runs an initial MCMC to calculate marginal
     inclusion probabilities and then samples without replacement as in
-    BAS; method = "AMCMC" runs an Adaptive MCMC (experimental).  For both
-    BAS and AMCMC, the sampling probabilities can be updated as more
-  models are sampled. (see  update below).  We recommend "MCMC+BAS" for
-  high dimensional problems.}
+    BAS; method = "AMCMC" runs an Adaptive MCMC (experimental).  For
+    both  BAS and AMCMC, the sampling probabilities can be updated as
+    more  models are sampled. (see  update below).  We recommend
+    "MCMC+BAS" or "MCMC" for high dimensional problems where enumeration
+    is not feasible.}
   \item{update}{number of iterations between potential updates of the
-    sampling probabilities. If NULL do not update, otherwise the
-    algorithm will update using the marginal inclusion probabilities as
-    they change while sampling takes place.  For large model spaces,
-    updating is recommended. If the model space will be enumerated,
-    leave at the default.}
+    sampling probabilities for method "BAS". If NULL do not update,
+    otherwise the  algorithm will update using the marginal inclusion
+    probabilities as  they change while sampling takes place.  For large
+    model spaces, updating is recommended. If the model space will be
+    enumerated, leave at the default.}
   \item{bestmodel}{optional binary vector representing a model to
     initialize the sampling. If NULL sampling starts with the null
     model}
@@ -67,13 +90,17 @@
   \item{prob.rw}{For any of the MCMC methods, probability of using the
     random-walk proposal; otherwise use a random "flip" move to propose
     a new model.}
-  \item{Burnin.iterations}{Number of iterations to discard when using any
-    of the MCMC options}
-   \item{MCMC.iterations}{Number of iterations to run  MCMC when MCMC
-     options are used}
+  \item{MCMC.iterations}{Number of iterations for the MCMC sampler; the
+    default is n.models*10 if not set by the user.} 
    \item{lambda}{Parameter in the AMCMC algorithm.}
    \item{delta}{truncation parameter to prevent sampling probabilities
-     to degenerate to 0 or 1.}  }  \details{BAS provides several search
+     to degenerate to 0 or 1 prior to enumeration for sampling withour
+     replacent.}
+   \item{thin}{For "MCMC", thin the MCMC every "thin"
+     iterations; default is no thinning.} 
+ }
+
+\details{BAS provides several search
 algorithms to find high probability models for use in Bayesian Model
 Averaging or Bayesian model selection. For p less than 20-25, BAS can
 enumerate all models depending on memory availability, for larger p, BAS
@@ -84,8 +111,7 @@ probabilities, and will optionally update the sampling probabilities
 every "update" models using the estimated marginal inclusion
 probabilties. BAS uses different methods to obtain the \code{initprobs},
 which may impact the results in high-dimensional problems.
-The
-deterinistic sampler provides a list of the top models in order of an
+The deterinistic sampler provides a list of the top models in order of an
 approximation of independence using the provided \code{initprobs}.  This
 may be effective after running the other algorithms to identify high
 probability models and works well if 
@@ -109,7 +135,11 @@ An object of class \code{BMA} is a list containing at least the following compon
     includes the intercept}
   \item{which}{a list of lists with one list per model with  variables
     that are included in the model} 
-  \item{probne0}{the posterior probability that each variable is non-zero}
+  \item{probne0}{the posterior probability that each variable is
+    non-zero computed using the renormalized marginal likelihoods of
+    sampled models.  This may be biased if the number of sampled models
+    is much smaller than the total number of models. Unbiased estimates
+    may be obtained using method "MCMC".}
   \item{ols}{list of lists with one list per model giving the OLS
 estimate of each (nonzero) coefficient for each model.  The intercept
 is the mean of Y as each column of X has been centered by subtracting
@@ -137,11 +167,10 @@ its mean.}
 \references{
   Clyde, M. Ghosh, J. and Littman, M. (2010) Bayesian Adaptive Sampling
   for Variable Selection and Model Averaging. Journal of Computational
-  Graphics and Statistics.  (to appear) Department of Statistical
-  Science Discussion Paper 2009-16. Duke University.
+  Graphics and Statistics.  20:80-101 \cr \url{http://dx.doi.org/10.1198/jcgs.2010.09049}
   
   Clyde, M. and George, E. I. (2004) Model Uncertainty. Statist. Sci.,
-  19, 81-94. \cr \url{http://dx/doi.org/10.1214/088342304000000035}
+  19, 81-94. \cr \url{http://dx.doi.org/10.1214/088342304000000035}
   
   Clyde, M. (1999)
   Bayesian Model Averaging and Model Search Strategies (with

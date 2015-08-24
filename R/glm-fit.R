@@ -6,6 +6,7 @@ function (x, y, weights = rep(1, nobs), start = NULL, etastart = NULL,
 {
 
   x <- as.matrix(x)
+  y <- as.numeric(y)
   ynames <- if (is.matrix(y))     rownames(y)
             else names(y)
   conv <- FALSE
@@ -16,11 +17,12 @@ function (x, y, weights = rep(1, nobs), start = NULL, etastart = NULL,
   if (is.null(offset))    offset <- rep.int(0, nobs)
   eval(family$initialize)
   if (coefprior$family == "BIC") coefprior$hyper = as.numeric(nobs)
+
   newfit = .Call("glm_fit",
     RX=x, RY = y,
     family=family, Roffset = offset,
     Rweights = weights,
-    Rpriorcoef = coefprior, Rcontrol=control, PACKAGE="BAS")
-  
+      Rpriorcoef = coefprior, Rcontrol=control, PACKAGE="BAS")
+
   return(newfit)
 }

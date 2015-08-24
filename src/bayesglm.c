@@ -2,17 +2,7 @@
 #include "family.h"
 #include <R_ext/BLAS.h>
 
-typedef struct glmfamilystruc {
-  const char *family;
-  const char *link;
-  void (*mu_eta)(double *eta, double *mu, int n);
-  void (*linkfun)(double *mu, double *eta, int n);
-  void (*variance)(double * mu, double *var, int n);
-  void (*dev_resids)(double *y, double *mu, double *weights, double *resids, int n);
-  void (*linkinv)(double *eta, double *mu, int n);
-  void (*initialize)(double *Y, double *mu, double *weights, int n);
-  double (*dispersion)(double *resid,  double *weights, int n, int rank);
-} glmstptr;
+
 
 typedef struct coefpriorstruc {
   const char *family;
@@ -112,7 +102,7 @@ SEXP glm_fit(SEXP RX, SEXP RY,SEXP family, SEXP Roffset, SEXP Rweights, SEXP Rpr
 
   coefprior = (struct coefpriorstruc *) R_alloc(1, sizeof(struct coefpriorstruc));
   coefprior->family = CHAR(STRING_ELT(getListElement(Rpriorcoef, "family"),0));
-  //  Rprintf("family %s\n", coefprior->family);
+  //  Rprintf("prior family %s\n", coefprior->family);
   coefprior->class  = CHAR(STRING_ELT(getListElement(Rpriorcoef, "class"),0));
   //  Rprintf("class %s\n", coefprior->class);
   //  if (getListElement(Rpriorcoef, "hyper") != R_NilValue) 	
@@ -132,29 +122,12 @@ SEXP glm_fit(SEXP RX, SEXP RY,SEXP family, SEXP Roffset, SEXP Rweights, SEXP Rpr
     coefprior->g = no_g;
 }
   
-  //  Rprintf("prior %s\n", coefprior->family);
 
-  glmfamily = (struct glmfamilystruc *) R_alloc(1, sizeof(struct glmfamilystruc));
-  glmfamily->family = CHAR(STRING_ELT(getListElement(family, "family"),0));
-  //  Rprintf("family %s\n", glmfamily->family);
-  glmfamily->link = CHAR(STRING_ELT(getListElement(family, "link"),0));
+
+  glmfamily = make_glmfamily_structure(family); 
+
+
   
-  // Rprintf("link %s\n", glmfamily->link);
-  if  (strcmp(glmfamily->family, "binomial") == 0) {
-    glmfamily->dev_resids = binomial_dev_resids;
-    glmfamily->dispersion = binomial_dispersion;
-    glmfamily->initialize = binomial_initialize;
-    if (strcmp(glmfamily->link, "logit") == 0) {
-       glmfamily->linkfun = logit_link;	
-       glmfamily->mu_eta = logit_mu_eta;
-       glmfamily->variance = logit_variance; 
-       glmfamily->linkinv =  logit_linkinv;
-	}
-   else  Rprintf("no other links implemented yet\n");
-  }
-  else  Rprintf("no other families implemented yet\n");
-   
-   
   for (m=0; m< nmodels; m++){
     glmfamily->initialize(Y, mu, weights, n);
     glmfamily->linkfun(mu, eta, n);
@@ -193,7 +166,7 @@ SEXP glm_fit(SEXP RX, SEXP RY,SEXP family, SEXP Roffset, SEXP Rweights, SEXP Rpr
     //    Rprintf("rank %ld \n", rank);
 
     if (n < rank) {
-      Rprintf("X has rank %ld but there are only %ld observations");
+      warning("X has rank %ld but there are only %ld observations");
       conv = 1;
     }
 

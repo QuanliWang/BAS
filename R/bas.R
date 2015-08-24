@@ -1,70 +1,155 @@
+.extractResponse <- function(frm, dat) {
+# if (length(formula) == 3){
+        resp <- frm[[2]];
+        fdat <- eval(resp, envir=dat);
+#    }
+# else {stop("Formula missing Response") }
+    return(fdat)
+}
+
+.normalize.initprobs.lm <- function (initprobs, p) {
+
+
+    if (!is.numeric(initprobs))
+    simpleError("oops no valid method given to calculate initial probabilities")
+#        {
+#        initprobs = switch(initprobs,
+#            "eplogp" = eplogprob(lm.obj),
+#            "marg-eplogp" = eplogprob.marg(Y, X),
+#            "uniform" = c(1.0, rep(.5, p-1)),
+#            "Uniform" = c(1.0, rep(.5, p-1)),
+#            )
+#    }
+
+    if (length(initprobs) == (p-1))
+        initprobs = c(1.0, initprobs)
+    if (length(initprobs) != p)
+        stop(simpleError(paste("length of initprobs is", length(initprobs), "is not same as dimensions of X", p)))
+
+    if (initprobs[1] < 1.0 | initprobs[1] > 1.0) initprobs[1] = 1.0
+	# intercept is always included otherwise we get a segmentation
+	# fault (relax later)
+    prob = as.numeric(initprobs)
+#    if (!is.null(lm.obj)) {
+#        pval = summary(lm.obj)$coefficients[,4]
+#        if (any(is.na(pval))) {
+#            print(paste("warning full model is rank deficient."))
+#        }}
+#    
+    return(prob);
+}
+
+.normalize.modelprior <- function(modelprior,p) {
+	if (modelprior$family == "Bernoulli") {
+   		if (length(modelprior$hyper.parameters) == 1) 
+      		modelprior$hyper.parameters = c(1, rep(modelprior$hyper.parameters, p-1))
+    		if  (length(modelprior$hyper.parameters) == (p-1)) 
+     			modelprior$hyper.parameters = c(1, modelprior$hyper.parameters)
+    		if  (length(modelprior$hyper.parameters) != p)
+      		stop(" Number of probabilities in Bernoulli family is not equal to the number of variables or 1")
+  	}
+	return(modelprior)
+}
+
+.normalize.n.models <- function(n.models, p, initprobs, method) {
+    if (is.null(n.models)){
+        n.models = 2^(p-1)
+    }
+    if (n.models > 2^(p-1)) n.models = 2^(p-1)
+  	deg = sum(initprobs >= 1) + sum(initprobs <= 0)
+  	if (deg > 1 & n.models == 2^(p - 1)) {
+    		n.models = 2^(p - deg)
+    		print(paste("There are", as.character(deg),
+                "degenerate sampling probabilities (0 or 1); decreasing the number of models to",                 as.character(n.models)))
+  	}
+
+  	if (n.models > 2^30) stop("Dimension of model space is too big to enumerate\n  Rerun with a smaller value for n.models")
+  	if (n.models > 2^25)
+            print("Number of models is BIG -this may take a while")
+    return(n.models)
+}
+
+
 bas.lm = function(formula, data, n.models=NULL,  prior="ZS-null", alpha=NULL,
-                  modelprior=uniform(),
+                  modelprior=beta.binomial(1,1),
                   initprobs="Uniform", method="BAS", update=NULL, 
                   bestmodel=NULL, bestmarg=NULL, prob.local=0.0,
                   prob.rw=0.5,  
-                  Burnin.iterations=NULL,
-                  MCMC.iterations=NULL, lambda=NULL, delta=0.025)  {
+                  MCMC.iterations=NULL,
+                  lambda=NULL, delta=0.025, thin=1)  {
   num.updates=10
   call = match.call()
-  lm.obj = lm(formula, data, y=TRUE, x=TRUE)
-  Y = lm.obj$y
-  X = lm.obj$x
+  if ( !is.numeric(initprobs) && initprobs == "eplogp") {
+      lm.obj = lm(formula, data, y=TRUE, x=TRUE)
+      Y = lm.obj$y
+      X = lm.obj$x
+  }
+  else {
+      Y = .extractResponse(formula, data)    
+      X = model.matrix(formula, data)
+      lm.obj = NULL
+  }
   Xorg = X
   namesx = dimnames(X)[[2]]
   namesx[1] = "Intercept"
   mean.x = apply(X[,-1], 2, mean)
   ones = X[,1]
   X = cbind(ones, sweep(X[, -1], 2, mean.x))
-  p = dim(X)[2]
+  p <-  dim(X)[2]
+  n <- dim(X)[1]
 
-  
+  if (n <= p) {
+      if (modelprior$family == "Uniform" || modelprior$family == "Bernoulli")
+          warning("Uniform prior (Bernoulli)  distribution on the Model Space are not recommended for p > n; please consider using beta.bernoulli instead")
+  }
   if (!is.numeric(initprobs)) {
+      if (n <= p && initprobs == "eplogp") {
+          simpleError("error: Full model is not full rank so cannot use the eplogp bound to create starting sampling probabilities, perhpas use 'marg-eplogp' for fiting marginal models\n")
+      }
     initprobs = switch(initprobs,
-     "eplogp" = eplogprob(lm.obj),
-      "uniform"= c(1.0, rep(.5, p-1)),
-      "Uniform"= c(1.0, rep(.5, p-1)),
+        "eplogp" = eplogprob(lm.obj),
+        "marg-eplogp" = eplogprob.marg(Y, X),
+        "uniform"= c(1.0, rep(.5, p-1)),
+        "Uniform"= c(1.0, rep(.5, p-1)),
       )
   }
-   if (length(initprobs) == (p-1))
-     initprobs = c(1.0, initprobs)
-   if (length(initprobs) != p)
-    stop(simpleError(paste("length of initprobs is not", p)))
+#   if (length(initprobs) == (p-1))
+#     initprobs = c(1.0, initprobs)
+#   if (length(initprobs) != p)
+#    stop(simpleError(paste("length of initprobs is not", p)))
 
-  pval = summary(lm.obj)$coefficients[,4]
-  if (any(is.na(pval))) {
-    print(paste("warning full model is rank deficient"))
+#  pval = summary(lm.obj)$coefficients[,4]
+#  if (any(is.na(pval))) {
+#    print(paste("warning full model is rank deficient"))
 #    initprobs[is.na(pval)] = 0.0
-  }
-
-  if (initprobs[1] < 1.0 | initprobs[1] > 1.0) initprobs[1] = 1.0
+#  }
+#
+#  if (initprobs[1] < 1.0 | initprobs[1] > 1.0) initprobs[1] = 1.0
 # intercept is always included otherwise we get a segmentation
 # fault (relax later)
 
-  prob = as.numeric(initprobs)
+  #  prob = as.numeric(initprobs)
+  #MCMC-BAS
 
-  if (is.null(n.models)) n.models = 2^(p-1)
-  if (n.models > 2^(p-1)) n.models = 2^(p-1)
-  deg = sum(initprobs >= 1) + sum(initprobs <= 0)
-  if (deg > 1 & n.models == 2^(p - 1)) {
-    n.models = 2^(p - deg)
-    print(paste("There are", as.character(deg),
-                "degenerate sampling probabilities (0 or 1); decreasing the number of models to",                 as.character(n.models)))
-  }
-
-  if (n.models > 2^30) stop("Dimension of model space is too big to enumerate\n  Rerun with a smaller value for n.models")
-  if (n.models > 2^20)
-    print("Number of models is BIG -this may take a while")
+  if (is.null(MCMC.iterations)) MCMC.iterations = as.integer(n.models*10)
+  Burnin.iterations = as.integer(MCMC.iterations)
+  
+  if (is.null(lambda)) lambda=1.0
+      
+  prob <- .normalize.initprobs.lm(initprobs, p)
+  n.models <- .normalize.n.models(n.models, p, prob, method)
+  print(n.models)
+  modelprior <- .normalize.modelprior(modelprior,p)
 
 
-  if (modelprior$family == "Bernoulli") {
-   if (length(modelprior$hyper.parameters) == 1) 
-      modelprior$hyper.parameters = c(1, rep(modelprior$hyper.parameters, p-1))
-    if  (length(modelprior$hyper.parameters) == (p-1)) 
-     modelprior$hyper.parameters = c(1, modelprior$hyper.parameters)
-    if  (length(modelprior$hyper.parameters) != p)
-      stop(" Number of probabilities in Bernoulli family is not equal to the number of variables or 1")
-  }
+#  if (modelprior$family == "Bernoulli") {
+#   if (length(modelprior$hyper.parameters) == 1) 
+#      modelprior$hyper.parameters = c(1, rep(modelprior$hyper.parameters, p-1))
+#    if  (length(modelprior$hyper.parameters) == (p-1)) 
+#     modelprior$hyper.parameters = c(1, modelprior$hyper.parameters)
+#    if  (length(modelprior$hyper.parameters) != p)
+#      stop(" Number of probabilities in Bernoulli family is not equal to the number of variables or 1")
+#}
   
   int = TRUE  # assume that an intercept is always included 
   method.num = switch(prior,
@@ -99,10 +184,6 @@ bas.lm = function(formula, data, n.models=NULL,  prior="ZS-null", alpha=NULL,
   modeldim = as.integer(rep(0, n.models))
   n.models = as.integer(n.models)
 
-  #MCMC-BAS
-    if (is.null(MCMC.iterations)) MCMC.iterations = as.integer(n.models/2)
-    if (is.null(Burnin.iterations)) Burnin.iterations = as.integer(n.models/2)
-    if (is.null(lambda)) lambda=1.0
 
 #  sampleprobs = as.double(rep(0.0, n.models))
   result = switch(method,
@@ -129,7 +210,7 @@ bas.lm = function(formula, data, n.models=NULL,  prior="ZS-null", alpha=NULL,
       plocal=as.numeric(1.0 - prob.rw), as.integer(Burnin.iterations), 
       as.integer(MCMC.iterations), as.numeric(lambda),as.numeric(delta),
       PACKAGE="BAS"),
-    "MCMC_new"= .Call("mcmc_new",
+    "MCMC"= .Call("mcmc_new",
       Yvec, X,
       prob, modeldim,
       incint=as.integer(int), 
@@ -139,20 +220,22 @@ bas.lm = function(formula, data, n.models=NULL,  prior="ZS-null", alpha=NULL,
       Rbestmodel=as.integer(bestmodel),
       Rbestmarg=as.numeric(bestmarg),
       plocal=as.numeric(1.0 - prob.rw), as.integer(Burnin.iterations), 
-      as.integer(MCMC.iterations), as.numeric(lambda),as.numeric(delta),
+        as.integer(MCMC.iterations), as.numeric(lambda),as.numeric(delta),
+        as.integer(thin),
 	 PACKAGE="BAS"),
-    "MCMC"= .Call("mcmc",
-      Yvec, X,
-      prob, modeldim,
-      incint=as.integer(int), 
-      alpha= as.numeric(alpha),
-      method=as.integer(method.num), modelprior=modelprior,
-      update=as.integer(update),
-      Rbestmodel=as.integer(bestmodel),
-      Rbestmarg=as.numeric(bestmarg),
-      plocal=as.numeric(1.0 - prob.rw), as.integer(Burnin.iterations), 
-      as.integer(MCMC.iterations), as.numeric(lambda),as.numeric(delta),
-      PACKAGE="BAS"),
+    "MCMC_old"= .Call("mcmc",
+        Yvec, X,
+        prob, modeldim,
+        incint=as.integer(int), 
+        alpha= as.numeric(alpha),
+        method=as.integer(method.num), modelprior=modelprior,
+        update=as.integer(update),
+        Rbestmodel=as.integer(bestmodel),
+        Rbestmarg=as.numeric(bestmarg),
+        plocal=as.numeric(1.0 - prob.rw), as.integer(Burnin.iterations), 
+        as.integer(MCMC.iterations), as.numeric(lambda),as.numeric(delta),
+        as.integer(thin),
+        PACKAGE="BAS"),
     "AMCMC" = .Call("amcmc",
       Yvec, X,
       prob, modeldim,
@@ -205,4 +288,4 @@ bas.lm = function(formula, data, n.models=NULL,  prior="ZS-null", alpha=NULL,
   class(result) = "bma"
   if (prior == "EB-global") result = EB.global.bma(result)
   return(result) 
-}
+  }

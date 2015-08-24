@@ -134,7 +134,7 @@ double GetNextModelCandidate(int pmodel_old, int n, int n_sure, int *model, stru
 			// random
 			MH =  random_switch(model, vars, n, pmodel_old, varin, varout );
 		} else {
-			// Randomw walk proposal flip bit//
+			// Random walk proposal flip bit//
 			MH =  random_walk(model, vars,  n);
 		}
 	}
@@ -142,7 +142,7 @@ double GetNextModelCandidate(int pmodel_old, int n, int n_sure, int *model, stru
 }
 SEXP mcmc_new(SEXP Y, SEXP X, SEXP Rprobinit, SEXP Rmodeldim, SEXP incint, SEXP Ralpha,SEXP method, 
 			  SEXP modelprior, SEXP Rupdate, SEXP Rbestmodel, SEXP Rbestmarg, SEXP plocal, 
-			  SEXP BURNIN_Iterations, SEXP MCMC_Iterations, SEXP LAMBDA, SEXP DELTA)
+	      SEXP BURNIN_Iterations, SEXP MCMC_Iterations, SEXP LAMBDA, SEXP DELTA, SEXP Rthin)
 {
 	int nProtected = 0;
 	SEXP RXwork = PROTECT(duplicate(X)); nProtected++;
@@ -172,7 +172,7 @@ SEXP mcmc_new(SEXP Y, SEXP X, SEXP Rprobinit, SEXP Rmodeldim, SEXP incint, SEXP 
 	double *Xwork, *Ywork, *probs, shrinkage_m,
 		mse_m, MH=0.0, prior_m=1.0, 
 		R2_m, RSquareFull, logmargy, postold, postnew;
-	int i, j, m, n, l, pmodel_old, *model_m, *bestmodel;
+	int i, m, n, pmodel_old, *model_m, *bestmodel;
 	int mcurrent, n_sure;
 	
 	//get dimsensions of all variables 
@@ -182,8 +182,9 @@ SEXP mcmc_new(SEXP Y, SEXP X, SEXP Rprobinit, SEXP Rmodeldim, SEXP incint, SEXP 
 	double lambda=REAL(LAMBDA)[0];
 	double delta = REAL(DELTA)[0];
 	double alpha = REAL(Ralpha)[0];
-
-	Rprintf("delta %f lambda %f", delta, lambda);
+	int thin = INTEGER(Rthin)[0];
+	
+	//	Rprintf("delta %f lambda %f", delta, lambda);
 
 	Ywork = REAL(RYwork);
 	Xwork = REAL(RXwork);
@@ -240,7 +241,7 @@ SEXP mcmc_new(SEXP Y, SEXP X, SEXP Rprobinit, SEXP Rmodeldim, SEXP incint, SEXP 
 	SetModel2(logmargy, shrinkage_m, prior_m, sampleprobs, logmarg, shrinkage, priorprobs, m);
 	SetModel(Rcoef_m, Rse_m, Rmodel_m, mse_m, R2_m,	beta, se, modelspace, mse, R2, m);
 
-	int nUnique=0, newmodel=0;
+	int nUnique=0, newmodel=0, nsamples=0; 
 	double *real_model = vecalloc(n);
 	int *modelold = ivecalloc(p);
 	int old_loc = 0;
@@ -255,7 +256,8 @@ SEXP mcmc_new(SEXP Y, SEXP X, SEXP Rprobinit, SEXP Rmodeldim, SEXP incint, SEXP 
 	int *varout= ivecalloc(p);
 	double problocal = REAL(plocal)[0];
 	while (nUnique < k && m < INTEGER(BURNIN_Iterations)[0]) {
-		memcpy(model, modelold, sizeof(int)*p);
+
+	        memcpy(model, modelold, sizeof(int)*p);
 		pmodel =  n_sure;
 
 		MH = GetNextModelCandidate(pmodel_old, n, n_sure, model, vars, problocal, varin, varout);
@@ -263,74 +265,86 @@ SEXP mcmc_new(SEXP Y, SEXP X, SEXP Rprobinit, SEXP Rmodeldim, SEXP incint, SEXP 
 		branch = tree;
 		newmodel= 0;
 		for (i = 0; i< n; i++) {
-			int bit =  model[vars[i].index];
-			if (bit == 1) {
-				if (branch->one != NULL) branch = branch->one;
-				else newmodel = 1;
-			} else {
-				if (branch->zero != NULL)  branch = branch->zero;
-				else newmodel = 1;
-			} 
-			pmodel  += bit;
+		  int bit =  model[vars[i].index];
+		  if (bit == 1) {
+		    if (branch->one != NULL) branch = branch->one;
+		    else newmodel = 1;
+		  } else {
+		    if (branch->zero != NULL)  branch = branch->zero;
+		    else newmodel = 1;
+		  } 
+		  pmodel  += bit;
 		}
 
 		if (pmodel  == n_sure || pmodel == n + n_sure) {
-			MH = 1.0/(1.0 - problocal);
+		  MH = 1.0/(1.0 - problocal);
 		}
 
 		if (newmodel == 1) {
-			new_loc = nUnique;
-			PROTECT(Rmodel_m = allocVector(INTSXP,pmodel));
-			PROTECT(Rcoef_m = NEW_NUMERIC(pmodel)); 
-			PROTECT(Rse_m = NEW_NUMERIC(pmodel));   
-			model_m = GetModel_m(Rmodel_m, model, p);
+		  new_loc = nUnique;
+		  PROTECT(Rmodel_m = allocVector(INTSXP,pmodel));
+		  PROTECT(Rcoef_m = NEW_NUMERIC(pmodel)); 
+		  PROTECT(Rse_m = NEW_NUMERIC(pmodel));   
+		  model_m = GetModel_m(Rmodel_m, model, p);
 
-			R2_m = FitModel(Rcoef_m, Rse_m, XtY, XtX, model_m, XtYwork, XtXwork, yty, SSY, pmodel, p, nobs, m, &mse_m);
-			gexpectations(p, pmodel, nobs, R2_m, alpha, INTEGER(method)[0], RSquareFull, SSY, &logmargy, &shrinkage_m);
+		  R2_m = FitModel(Rcoef_m, Rse_m, XtY, XtX, model_m, XtYwork, XtXwork, yty, SSY, pmodel, p, nobs, m, &mse_m);
+		  gexpectations(p, pmodel, nobs, R2_m, alpha, INTEGER(method)[0], RSquareFull, SSY, &logmargy, &shrinkage_m);
 
-			prior_m = compute_prior_probs(model,pmodel,p, modelprior);
-			postnew = logmargy + log(prior_m);
-		} else {
-			new_loc = branch->where;
-			postnew =  REAL(logmarg)[new_loc] + log(REAL(priorprobs)[new_loc]);      
+		  prior_m = compute_prior_probs(model,pmodel,p, modelprior);
+		  postnew = logmargy + log(prior_m);
+		}
+		else {
+		  new_loc = branch->where;
+		  postnew =  REAL(logmarg)[new_loc] + log(REAL(priorprobs)[new_loc]);      
 		} 
 
 		MH *= exp(postnew - postold);
 		//    Rprintf("MH new %lf old %lf\n", postnew, postold);
 		if (unif_rand() < MH) {
-			if (newmodel == 1)  {
-				new_loc = nUnique;
-				insert_model_tree(tree, vars, n, model, nUnique);
-				INTEGER(modeldim)[nUnique] = pmodel;
-				
-				//record model data
-				SetModel2(logmargy, shrinkage_m, prior_m, sampleprobs, logmarg, shrinkage, priorprobs, nUnique);
-				SetModel(Rcoef_m, Rse_m, Rmodel_m, mse_m, R2_m,	beta, se, modelspace, mse, R2,nUnique);
-				
-				++nUnique; 
-			}
+		  if (newmodel == 1) {
+		    if ((m % thin) == 0 )  {
+		    
+		    new_loc = nUnique;
+		    insert_model_tree(tree, vars, n, model, nUnique);
+		    INTEGER(modeldim)[nUnique] = pmodel;
+		    
+		    //record model data
+		    SetModel2(logmargy, shrinkage_m, prior_m, sampleprobs, logmarg, shrinkage, priorprobs, nUnique);
+		    SetModel(Rcoef_m, Rse_m, Rmodel_m, mse_m, R2_m,	beta, se, modelspace, mse, R2,nUnique);
+		    
+		    ++nUnique;
+		    }
+		    else UNPROTECT(3);
+		  }
 
-			old_loc = new_loc;
-			postold = postnew;
-			pmodel_old = pmodel;
-			memcpy(modelold, model, sizeof(int)*p);
+		  old_loc = new_loc;
+		  postold = postnew;
+		  pmodel_old = pmodel;
+		  memcpy(modelold, model, sizeof(int)*p);
 
 		} else  {
-			if (newmodel == 1) UNPROTECT(3);
+		  if (newmodel == 1) UNPROTECT(3);
 		}
 
-		INTEGER(counts)[old_loc] += 1;
+		if ( (m % thin) == 0) {
 
-		for (i = 0; i < n; i++) {
-			// store in opposite order so nth variable is first 
-			real_model[n-1-i] = (double) modelold[vars[i].index];
-			REAL(MCMCprobs)[vars[i].index] += (double) modelold[vars[i].index];
+		  INTEGER(counts)[old_loc] += 1;
+
+		  for (i = 0; i < n; i++) {
+		    // store in opposite order so nth variable is first 
+		    real_model[n-1-i] = (double) modelold[vars[i].index];
+		    REAL(MCMCprobs)[vars[i].index] += (double) modelold[vars[i].index];	
+		  }
+		  nsamples++; 
 		}
 		m++;
 	}
 
+	// Now wrap up
+
+	// Compute MCMC inclusion probabilities 
 	for (i = 0; i < n; i++) {
-		REAL(MCMCprobs)[vars[i].index] /= (double) m;
+		REAL(MCMCprobs)[vars[i].index] /= (double) nsamples;
 	}
 	
 	// Compute marginal probabilities  
@@ -338,8 +352,6 @@ SEXP mcmc_new(SEXP Y, SEXP X, SEXP Rprobinit, SEXP Rmodeldim, SEXP incint, SEXP 
 	compute_modelprobs(modelprobs, logmarg, priorprobs,mcurrent);
 	compute_margprobs(modelspace, modeldim, modelprobs, probs, mcurrent, p);        
 
-	//  Now sample W/O Replacement 
-	Rprintf("NumUnique Models Accepted %d \n", nUnique);
 	INTEGER(NumUnique)[0] = nUnique;
 
 	SET_VECTOR_ELT(ANS, 0, Rprobs);
@@ -505,7 +517,7 @@ SEXP mcmc_new(SEXP Y, SEXP X, SEXP Rprobinit, SEXP Rmodeldim, SEXP incint, SEXP 
 	
 	PutRNGstate();
     UNPROTECT(nProtected);
-	Rprintf("Return\n");
+    //	Rprintf("Return\n");
 	return(ANS);  
 }
 
